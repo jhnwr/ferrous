@@ -4,6 +4,7 @@ mod crawler;
 mod element;
 mod fetcher;
 mod output;
+mod stats;
 mod zyte;
 
 pub use element::Element;
@@ -16,6 +17,7 @@ pub use wreq_util::Emulation;
 use crawler::{Callback, RegisteredCallback};
 use fetcher::Fetcher;
 use output::OutputWriter;
+use stats::Stats;
 use scraper::Selector;
 use std::sync::Arc;
 use zyte::ZyteClient;
@@ -124,6 +126,7 @@ impl Collector {
 
         let fetcher = Arc::new(fetcher);
         let callbacks = Arc::new(self.callbacks);
+        let stats = Stats::new();
 
         crawler::run(
             self.start_urls,
@@ -131,6 +134,7 @@ impl Collector {
             fetcher,
             output,
             self.concurrency,
+            stats,
         )
         .await;
     }

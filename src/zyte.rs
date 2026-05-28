@@ -1,9 +1,10 @@
-use anyhow::{anyhow, Result};
 use base64::Engine;
 use reqwest::Client;
-use serde::Deserialize;
 use std::time::Duration;
 use tokio::time::sleep;
+use serde::Deserialize;
+
+use crate::fetcher::FetchError;
 
 #[derive(Clone, Debug)]
 pub enum ZyteMode {
@@ -37,25 +38,26 @@ impl ZyteClient {
         }
     }
 
-    pub async fn fetch(&self, url: &str) -> Result<String> {
+    pub async fn fetch(&self, url: &str) -> Result<String, FetchError> {
         match self.fetch_once(url).await {
             Ok(body) => Ok(body),
             Err(e) => {
-                // Check if the error is a retryable 5xx
-                if e.to_string().contains("5xx") {
-                    sleep(Duration::from_secs(2)).await;
-                    self.fetch_once(url).await.map_err(|e2| {
-                        eprintln!("[ferrous] skip {url} after retry: {e2}");
-                        e2
-                    })
-                } else {
-                    Err(e)
+                if let FetchError::HttpError { status, .. } = &e {
+                    if *status >= 500 {
+                        tracing::warn!(url, "5xx from Zyte API, retrying");
+                        sleep(Duration::from_secs(2)).await;
+                        return self.fetch_once(url).await.map_err(|e2| {
+                            tracing::warn!(url, error = %e2, "skip after retry");
+                            e2
+                        });
+                    }
                 }
+                Err(e)
             }
         }
     }
 
-    async fn fetch_once(&self, url: &str) -> Result<String> {
+    async fn fetch_once(&self, url: &str) -> Result<String, FetchError> {
         let body = match self.mode {
             ZyteMode::Http => serde_json::json!({
                 "url": url,
@@ -73,25 +75,43 @@ impl ZyteClient {
             .basic_auth(&self.api_key, Some(""))
             .json(&body)
             .send()
-            .await?;
+            .await
+            .map_err(|e| FetchError::NetworkError {
+                error: e.to_string(),
+                url: url.to_string(),
+            })?;
 
         let status = resp.status();
 
         if status.is_success() {
-            let zyte_resp: ZyteResponse = resp.json().await?;
+            let zyte_resp: ZyteResponse = resp.json().await.map_err(|e| FetchError::ParseError {
+                error: e.to_string(),
+                url: url.to_string(),
+            })?;
+
             if let Some(encoded) = zyte_resp.http_response_body {
-                let bytes = base64::engine::general_purpose::STANDARD.decode(&encoded)?;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(&encoded)
+                    .map_err(|e| FetchError::ParseError {
+                        error: e.to_string(),
+                        url: url.to_string(),
+                    })?;
                 Ok(String::from_utf8_lossy(&bytes).into_owned())
             } else if let Some(html) = zyte_resp.browser_html {
                 Ok(html)
             } else {
-                Err(anyhow!("empty response body from Zyte API"))
+                Err(FetchError::ParseError {
+                    error: "empty response body from Zyte API".to_string(),
+                    url: url.to_string(),
+                })
             }
-        } else if status.is_server_error() {
-            Err(anyhow!("5xx from Zyte API: {status} for {url}"))
         } else {
-            eprintln!("[ferrous] skip {url}: HTTP {status}");
-            Err(anyhow!("non-retryable HTTP {status} for {url}"))
+            let code = status.as_u16();
+            tracing::warn!(url, status = code, "Zyte API returned non-2xx");
+            Err(FetchError::HttpError {
+                status: code,
+                url: url.to_string(),
+            })
         }
     }
 }

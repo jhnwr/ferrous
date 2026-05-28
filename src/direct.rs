@@ -1,6 +1,7 @@
-use anyhow::{anyhow, Result};
 use std::time::Duration;
 use wreq_util::Emulation;
+
+use crate::fetcher::FetchError;
 
 pub struct DirectClient {
     client: wreq::Client,
@@ -16,16 +17,31 @@ impl DirectClient {
         Self { client }
     }
 
-    pub async fn fetch(&self, url: &str) -> Result<String> {
-        let resp = self.client.get(url).send().await?;
+    pub async fn fetch(&self, url: &str) -> Result<String, FetchError> {
+        let resp = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| FetchError::NetworkError {
+                error: e.to_string(),
+                url: url.to_string(),
+            })?;
+
         let status = resp.status();
+
         if status.is_success() {
-            Ok(resp.text().await?)
-        } else if status.is_server_error() {
-            Err(anyhow!("5xx from server: {status} for {url}"))
+            resp.text().await.map_err(|e| FetchError::ParseError {
+                error: e.to_string(),
+                url: url.to_string(),
+            })
         } else {
-            eprintln!("[ferrous] skip {url}: HTTP {status}");
-            Err(anyhow!("non-retryable HTTP {status} for {url}"))
+            let code = status.as_u16();
+            tracing::warn!(url, status = code, "direct client returned non-2xx");
+            Err(FetchError::HttpError {
+                status: code,
+                url: url.to_string(),
+            })
         }
     }
 }

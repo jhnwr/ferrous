@@ -128,6 +128,49 @@ collector.on_html("div.item", move |el, ctx| {
 });
 ```
 
+## Logging
+
+Ferrous uses [`tracing`](https://docs.rs/tracing) for structured logging. By default, no output is produced — you need to install a subscriber in your project.
+
+Add to your `Cargo.toml`:
+
+```toml
+tracing-subscriber = "0.3"
+```
+
+Call this before `.run()`:
+
+```rust
+tracing_subscriber::fmt::init();
+```
+
+Default log level is `INFO`, which shows:
+- Crawl start/stop
+- Each page fetched
+- HTTP errors and retries
+- Scrape summary at completion
+
+Use `RUST_LOG=debug` for per-item output, or `RUST_LOG=warn` to see only errors.
+
+### Scrape summary
+
+At the end of every run, ferrous prints a summary:
+
+```
+INFO ferrous: scrape complete
+INFO ferrous:   duration:       14.3s
+INFO ferrous:   pages fetched:  50
+INFO ferrous:   items written:  1000
+INFO ferrous:   http status codes:
+INFO ferrous:     200:  50
+INFO ferrous:     404:   2
+INFO ferrous:   errors:
+INFO ferrous:     fetch errors:  0
+INFO ferrous:     write errors:  0
+```
+
+The errors section is omitted if there are none.
+
 ## Notes
 
 - All HTTP goes through Zyte API — no direct requests to target sites.

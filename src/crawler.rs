@@ -1,8 +1,10 @@
 use crate::element::Element;
-use crate::fetcher::Fetcher;
+use crate::fetcher::{FetchError, Fetcher};
 use crate::output::OutputWriter;
+use crate::stats::Stats;
 use scraper::{Html, Selector};
 use std::collections::{HashSet, VecDeque};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::time::{sleep, Duration};
@@ -55,6 +57,7 @@ pub async fn run(
     fetcher: Arc<Fetcher>,
     output: Arc<OutputWriter>,
     concurrency: usize,
+    stats: Arc<Stats>,
 ) {
     let queue: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
     let seen: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
@@ -64,13 +67,19 @@ pub async fn run(
     {
         let mut q = queue.lock().await;
         let mut s = seen.lock().await;
-        for url in start_urls {
-            let norm = normalize_url(&url);
+        for url in &start_urls {
+            let norm = normalize_url(url);
             if s.insert(norm.clone()) {
                 q.push_back(norm);
             }
         }
     }
+
+    tracing::info!(
+        start_urls = start_urls.len(),
+        concurrency,
+        "crawl started"
+    );
 
     loop {
         let url = {
@@ -98,13 +107,34 @@ pub async fn run(
                 let output = Arc::clone(&output);
                 let queue = Arc::clone(&queue);
                 let seen = Arc::clone(&seen);
+                let stats = Arc::clone(&stats);
 
                 tokio::spawn(async move {
                     let _permit = permit; // dropped at end of task
 
                     let html = match fetcher.fetch(&url).await {
-                        Ok(h) => h,
-                        Err(_) => return,
+                        Ok(h) => {
+                            stats.pages_fetched.fetch_add(1, Ordering::Relaxed);
+                            tracing::info!(url, "fetched");
+                            h
+                        }
+                        Err(e) => {
+                            match &e {
+                                FetchError::HttpError { status, .. } => {
+                                    stats.record_status(*status);
+                                    tracing::warn!(url, status, "fetch failed: http error");
+                                }
+                                FetchError::NetworkError { error, .. } => {
+                                    stats.fetch_errors.fetch_add(1, Ordering::Relaxed);
+                                    tracing::warn!(url, error, "fetch failed: network error");
+                                }
+                                FetchError::ParseError { error, .. } => {
+                                    stats.fetch_errors.fetch_add(1, Ordering::Relaxed);
+                                    tracing::warn!(url, error, "fetch failed: parse error");
+                                }
+                            }
+                            return;
+                        }
                     };
 
                     // Parse HTML and run all callbacks synchronously — Html is !Send
@@ -140,12 +170,21 @@ pub async fn run(
 
                     // Flush items to output
                     for item in all_items {
-                        if let Err(e) = output.write_item(&item).await {
-                            eprintln!("[ferrous] failed to write item: {e}");
+                        match output.write_item(&item).await {
+                            Ok(_) => {
+                                stats.items_written.fetch_add(1, Ordering::Relaxed);
+                                tracing::debug!(url, "item written");
+                            }
+                            Err(e) => {
+                                stats.write_errors.fetch_add(1, Ordering::Relaxed);
+                                tracing::error!(url, error = %e, "failed to write item");
+                            }
                         }
                     }
                 });
             }
         }
     }
+
+    stats.print_summary();
 }
