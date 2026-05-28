@@ -1,5 +1,8 @@
+#[cfg(feature = "wreq")]
+mod direct;
 mod crawler;
 mod element;
+mod fetcher;
 mod output;
 mod zyte;
 
@@ -7,35 +10,70 @@ pub use element::Element;
 pub use crawler::CrawlContext;
 pub use zyte::ZyteMode;
 
+#[cfg(feature = "wreq")]
+pub use wreq_util::Emulation;
+
 use crawler::{Callback, RegisteredCallback};
+use fetcher::Fetcher;
 use output::OutputWriter;
 use scraper::Selector;
 use std::sync::Arc;
 use zyte::ZyteClient;
 
+#[cfg(feature = "wreq")]
+use direct::DirectClient;
+
+enum ClientConfig {
+    Zyte { api_key: String, mode: ZyteMode },
+    #[cfg(feature = "wreq")]
+    Direct { emulation: wreq_util::Emulation },
+}
+
 pub struct Collector {
-    api_key: Option<String>,
+    client_config: Option<ClientConfig>,
     concurrency: usize,
     callbacks: Vec<RegisteredCallback>,
     output_path: String,
     start_urls: Vec<String>,
-    mode: ZyteMode,
 }
 
 impl Collector {
     pub fn new() -> Self {
         Self {
-            api_key: None,
+            client_config: None,
             concurrency: 4,
             callbacks: Vec::new(),
             output_path: "output.jsonl".to_string(),
             start_urls: Vec::new(),
-            mode: ZyteMode::Http,
         }
     }
 
     pub fn zyte_api_key(mut self, key: &str) -> Self {
-        self.api_key = Some(key.to_string());
+        self.client_config = Some(ClientConfig::Zyte {
+            api_key: key.to_string(),
+            mode: ZyteMode::Http,
+        });
+        self
+    }
+
+    pub fn zyte_mode(mut self, mode: ZyteMode) -> Self {
+        if let Some(ClientConfig::Zyte { mode: ref mut m, .. }) = self.client_config {
+            *m = mode;
+        }
+        self
+    }
+
+    #[cfg(feature = "wreq")]
+    pub fn direct(mut self) -> Self {
+        self.client_config = Some(ClientConfig::Direct {
+            emulation: wreq_util::Emulation::Chrome137,
+        });
+        self
+    }
+
+    #[cfg(feature = "wreq")]
+    pub fn direct_with_emulation(mut self, emulation: wreq_util::Emulation) -> Self {
+        self.client_config = Some(ClientConfig::Direct { emulation });
         self
     }
 
@@ -67,13 +105,16 @@ impl Collector {
         self
     }
 
-    pub fn zyte_mode(mut self, mode: ZyteMode) -> Self {
-        self.mode = mode;
-        self
-    }
-
     pub async fn run(self) {
-        let api_key = self.api_key.expect("zyte_api_key() is required");
+        let fetcher = match self.client_config.expect("no client configured: call zyte_api_key() or direct()") {
+            ClientConfig::Zyte { api_key, mode } => {
+                Fetcher::Zyte(ZyteClient::new(&api_key, mode))
+            }
+            #[cfg(feature = "wreq")]
+            ClientConfig::Direct { emulation } => {
+                Fetcher::Direct(DirectClient::new(emulation))
+            }
+        };
 
         let output = Arc::new(
             OutputWriter::new(&self.output_path)
@@ -81,13 +122,13 @@ impl Collector {
                 .expect("failed to open output file"),
         );
 
-        let zyte_client = Arc::new(ZyteClient::new(&api_key, self.mode));
+        let fetcher = Arc::new(fetcher);
         let callbacks = Arc::new(self.callbacks);
 
         crawler::run(
             self.start_urls,
             callbacks,
-            zyte_client,
+            fetcher,
             output,
             self.concurrency,
         )

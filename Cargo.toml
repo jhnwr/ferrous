@@ -8,6 +8,9 @@ repository = "https://github.com/jhnwr/ferrous"
 keywords = ["scraping", "crawler", "zyte", "web"]
 categories = ["web-programming"]
 
+[features]
+wreq = ["dep:wreq", "dep:wreq-util"]
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
@@ -16,3 +19,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 anyhow = "1"
+wreq = { version = "6.0.0-rc", features = ["json"], optional = true }
+wreq-util = { version = "3.0.0-rc", optional = true }
+
+[[example]]
+name = "books_direct"
+required-features = ["wreq"]

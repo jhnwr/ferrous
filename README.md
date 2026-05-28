@@ -44,18 +44,50 @@ async fn main() {
 
 Items are written to `books.jsonl` as newline-delimited JSON, one object per line.
 
+## Direct HTTP (no Zyte API)
+
+Ferrous can also make requests directly via [wreq](https://github.com/0x676e67/wreq), an HTTP client with browser TLS fingerprint emulation. This avoids the Zyte API requirement for sites that don't need it.
+
+Enable the `wreq` feature:
+
+```toml
+[dependencies]
+ferrous = { git = "https://github.com/jhnwr/ferrous", features = ["wreq"] }
+```
+
+Then use `.direct()` or `.direct_with_emulation()` instead of `.zyte_api_key()`:
+
+```rust
+use ferrous::{Collector, Emulation};
+
+Collector::new()
+    .direct()                                          // Chrome137 by default
+    // or: .direct_with_emulation(Emulation::Safari18_5)
+    .concurrency(8)
+    .on_html("h1", |el, ctx| {
+        ctx.push_item(serde_json::json!({ "title": el.text() }));
+    })
+    .visit("https://example.com")
+    .run()
+    .await;
+```
+
+> **Build prerequisites:** wreq uses BoringSSL which requires `cmake` (`brew install cmake` on macOS, `apt-get install cmake` on Linux).
+
 ## API reference
 
 ### `Collector` builder
 
 | Method | Description |
 |---|---|
-| `.zyte_api_key(key: &str)` | Zyte API authentication key. **Required.** |
+| `.zyte_api_key(key: &str)` | Zyte API authentication key. |
+| `.zyte_mode(mode: ZyteMode)` | `ZyteMode::Http` (default) or `ZyteMode::Browser`. |
+| `.direct()` | Use direct HTTP with Chrome137 emulation. Requires `wreq` feature. |
+| `.direct_with_emulation(e: Emulation)` | Use direct HTTP with a specific browser emulation. Requires `wreq` feature. |
 | `.concurrency(n: usize)` | Max concurrent requests. Default: `4`. |
 | `.on_html(selector: &str, callback)` | Register a callback fired for each element matching `selector`. |
 | `.output(path: &str)` | Output file path. Default: `output.jsonl`. |
 | `.visit(url: &str)` | Add a start URL. Can be called multiple times. |
-| `.zyte_mode(mode: ZyteMode)` | `ZyteMode::Http` (default) or `ZyteMode::Browser`. |
 | `.run().await` | Start the crawl. Returns when complete. |
 
 ### `Element`

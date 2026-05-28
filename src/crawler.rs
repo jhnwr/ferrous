@@ -1,6 +1,6 @@
 use crate::element::Element;
+use crate::fetcher::Fetcher;
 use crate::output::OutputWriter;
-use crate::zyte::ZyteClient;
 use scraper::{Html, Selector};
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
@@ -52,7 +52,7 @@ fn normalize_url(url: &str) -> String {
 pub async fn run(
     start_urls: Vec<String>,
     callbacks: Arc<Vec<RegisteredCallback>>,
-    zyte_client: Arc<ZyteClient>,
+    fetcher: Arc<Fetcher>,
     output: Arc<OutputWriter>,
     concurrency: usize,
 ) {
@@ -94,7 +94,7 @@ pub async fn run(
                     .expect("semaphore closed");
 
                 let callbacks = Arc::clone(&callbacks);
-                let zyte_client = Arc::clone(&zyte_client);
+                let fetcher = Arc::clone(&fetcher);
                 let output = Arc::clone(&output);
                 let queue = Arc::clone(&queue);
                 let seen = Arc::clone(&seen);
@@ -102,7 +102,7 @@ pub async fn run(
                 tokio::spawn(async move {
                     let _permit = permit; // dropped at end of task
 
-                    let html = match zyte_client.fetch(&url).await {
+                    let html = match fetcher.fetch(&url).await {
                         Ok(h) => h,
                         Err(_) => return,
                     };
