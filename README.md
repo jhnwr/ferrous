@@ -1,6 +1,8 @@
 # ferrous
 
-A minimal Rust scraping framework built on [Zyte API](https://www.zyte.com/zyte-api/). Follows the Colly pattern: register CSS selector callbacks, queue URLs, let the framework handle everything else.
+> **Learning project.** Built to explore Rust async patterns and web scraping concepts. Not production-ready.
+
+A minimal Rust scraping framework built on [Zyte API](https://www.zyte.com/zyte-api/). Heavily inspired by [Go Colly](https://go-colly.org/) — register CSS selector callbacks, queue URLs, let the framework handle everything else.
 
 ## Installation
 
