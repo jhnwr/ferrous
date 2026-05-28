@@ -17,16 +17,23 @@ pub struct RegisteredCallback {
 /// Per-callback context. Collects visits and items locally; the task
 /// flushes them after all callbacks complete.
 pub struct CrawlContext {
+    current_url: String,
     pub(crate) pending_visits: Vec<String>,
     pub(crate) pending_items: Vec<serde_json::Value>,
 }
 
 impl CrawlContext {
-    fn new() -> Self {
+    fn new(current_url: String) -> Self {
         Self {
+            current_url,
             pending_visits: Vec::new(),
             pending_items: Vec::new(),
         }
+    }
+
+    /// The URL of the page currently being processed.
+    pub fn url(&self) -> &str {
+        &self.current_url
     }
 
     pub fn visit(&mut self, url: &str) {
@@ -110,7 +117,7 @@ pub async fn run(
                         for registered in callbacks.iter() {
                             for el_ref in doc.select(&registered.selector) {
                                 let element = Element::from_element_ref(el_ref);
-                                let mut ctx = CrawlContext::new();
+                                let mut ctx = CrawlContext::new(url.clone());
                                 (registered.callback)(&element, &mut ctx);
                                 all_visits.extend(ctx.pending_visits);
                                 all_items.extend(ctx.pending_items);

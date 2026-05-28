@@ -75,6 +75,7 @@ Passed as the second argument to every `on_html` callback.
 
 | Method | Description |
 |---|---|
+| `.url() -> &str` | The URL of the page currently being processed. |
 | `.visit(url: &str)` | Queue a URL. Silently dropped if already seen. |
 | `.push_item(value: serde_json::Value)` | Write an item to the output file immediately. |
 
