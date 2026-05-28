@@ -150,7 +150,7 @@ Default log level is `INFO`, which shows:
 - HTTP errors and retries
 - Scrape summary at completion
 
-Use `RUST_LOG=debug` for per-item output, or `RUST_LOG=warn` to see only errors.
+Use `RUST_LOG=ferrous=debug` for per-item output, or `RUST_LOG=ferrous=warn` to see only errors. Scoping to `ferrous` avoids noisy debug output from underlying dependencies.
 
 ### Scrape summary
 

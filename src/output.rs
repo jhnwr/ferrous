@@ -10,8 +10,9 @@ pub struct OutputWriter {
 impl OutputWriter {
     pub async fn new(path: &str) -> Result<Self> {
         let file = OpenOptions::new()
+            .write(true)
             .create(true)
-            .append(true)
+            .truncate(true)
             .open(path)
             .await?;
         Ok(Self {
